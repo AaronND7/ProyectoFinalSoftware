@@ -1,0 +1,67 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "API Registro de Donantes", "version": "1.0.0" },
+  "servers": [{ "url": "http://localhost:3000" }],
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" } },
+    "schemas": {
+      "Credenciales": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": { "email": { "type": "string" }, "password": { "type": "string" } }
+      },
+      "Donante": {
+        "type": "object",
+        "required": ["nombre", "email", "tipo_donacion"],
+        "properties": {
+          "nombre": { "type": "string" },
+          "email": { "type": "string" },
+          "telefono": { "type": "string" },
+          "tipo_donacion": { "type": "string", "enum": ["monetaria", "especie", "sangre", "voluntariado"] },
+          "monto": { "type": "number" }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/auth/registro": {
+      "post": {
+        "summary": "Registrar usuario (rol usuario)",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Credenciales" } } } },
+        "responses": { "201": { "description": "Creado" } }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "summary": "Iniciar sesión y obtener JWT",
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Credenciales" } } } },
+        "responses": { "200": { "description": "Token" } }
+      }
+    },
+    "/api/donantes": {
+      "get": {
+        "summary": "Listar donantes",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "name": "buscar", "in": "query", "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "Lista" } }
+      },
+      "post": {
+        "summary": "Registrar donante",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Donante" } } } },
+        "responses": { "201": { "description": "Creado" } }
+      }
+    },
+    "/api/donantes/{id}": {
+      "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "integer" } }],
+      "get": { "summary": "Consultar donante", "security": [{ "bearerAuth": [] }], "responses": { "200": { "description": "OK" } } },
+      "put": {
+        "summary": "Actualizar donante (admin)",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": { "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Donante" } } } },
+        "responses": { "200": { "description": "OK" } }
+      },
+      "delete": { "summary": "Eliminar donante (admin)", "security": [{ "bearerAuth": [] }], "responses": { "204": { "description": "Eliminado" } } }
+    }
+  }
+}

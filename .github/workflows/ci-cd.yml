@@ -1,0 +1,83 @@
+name: CI/CD - API Donantes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Pruebas unitarias (cobertura >= 80%)
+    runs-on: ubuntu-latest
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # SonarQube necesita el historial completo
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm test # falla si la cobertura baja de 80 %
+
+      - name: Guardar reporte de cobertura
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+
+      - name: Análisis SonarQube
+        if: ${{ env.SONAR_TOKEN != '' }}
+        uses: SonarSource/sonarqube-scan-action@v5
+
+  security:
+    name: Escaneo OWASP ZAP
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Levantar la API en contenedor
+        run: |
+          docker build -t donantes-api .
+          docker run -d --name api -p 3000:3000 -e JWT_SECRET=ci-secret donantes-api
+          for i in $(seq 1 20); do curl -sf http://localhost:3000/health && break; sleep 2; done
+
+      - name: ZAP API Scan (XSS, SQLi, cabeceras, etc.)
+        uses: zaproxy/action-api-scan@v0.9.0
+        with:
+          target: http://localhost:3000/openapi.json
+          format: openapi
+          rules_file_name: .zap/rules.tsv
+          cmd_options: '-a'
+          fail_action: false
+          allow_issue_writing: false
+
+  deploy:
+    name: Despliegue a entorno de prueba
+    needs: [test, security]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: staging
+    env:
+      RENDER_DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Publicar imagen en GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+          IMAGE=ghcr.io/${{ github.repository_owner }}/donantes-api
+          IMAGE=$(echo "$IMAGE" | tr '[:upper:]' '[:lower:]')
+          docker build -t $IMAGE:staging -t $IMAGE:${{ github.sha }} .
+          docker push $IMAGE --all-tags
+
+      - name: Desplegar en Render (staging)
+        if: ${{ env.RENDER_DEPLOY_HOOK != '' }}
+        run: curl -fsS -X POST "$RENDER_DEPLOY_HOOK"
